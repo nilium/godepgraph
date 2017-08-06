@@ -99,7 +99,9 @@ func main() {
 		}
 
 		var color string
-		if pkg.Goroot {
+		if _, ok := roots[pkg.ImportPath]; ok {
+			color = "hotpink1"
+		} else if pkg.Goroot {
 			color = "palegreen"
 		} else if len(pkg.CgoFiles) > 0 {
 			color = "darkgoldenrod1"
