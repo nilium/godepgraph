@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	pkgs   map[string]*build.Package
-	ids    map[string]int
-	nextId int
+	processed = map[string]struct{}{}
+	pkgs      map[string]*build.Package
+	ids       map[string]int
+	nextId    int
 
 	ignored = map[string]bool{
 		"C": true,
@@ -27,6 +28,7 @@ var (
 	tagList        = flag.String("tags", "", "a comma-separated list of build tags to consider satisified during the build")
 	horizontal     = flag.Bool("horizontal", false, "lay out the dependency graph horizontally instead of vertically")
 	includeTests   = flag.Bool("t", false, "include test packages")
+	unvendor       = flag.Bool("V", false, "strip vendor prefixes from package import names (can help with dangling imports)")
 
 	buildTags    []string
 	buildContext = build.Default
@@ -113,6 +115,18 @@ func main() {
 	fmt.Println("}")
 }
 
+func canonImportPath(pkg *build.Package) string {
+	path := pkg.ImportPath
+	if !pkg.Goroot && *unvendor {
+		const sep = "/vendor/"
+		vidx := strings.Index(path, sep)
+		if vidx != -1 {
+			path = path[vidx+len(sep):]
+		}
+	}
+	return path
+}
+
 func processPackage(root string, pkgName string) error {
 	if ignored[pkgName] {
 		return nil
@@ -127,7 +141,12 @@ func processPackage(root string, pkgName string) error {
 		return nil
 	}
 
-	pkgs[pkg.ImportPath] = pkg
+	if _, ok := processed[pkg.ImportPath]; ok {
+		return nil
+	}
+	processed[pkg.ImportPath] = struct{}{}
+
+	pkgs[canonImportPath(pkg)] = pkg
 
 	// Don't worry about dependencies for stdlib packages
 	if pkg.Goroot && !*delveGoroot {
@@ -135,8 +154,8 @@ func processPackage(root string, pkgName string) error {
 	}
 
 	for _, imp := range getImports(pkg) {
-		if _, ok := pkgs[imp]; !ok {
-			if err := processPackage(root, imp); err != nil {
+		if _, ok := processed[imp]; !ok {
+			if err := processPackage(pkg.Dir, imp); err != nil {
 				return err
 			}
 		}
@@ -186,7 +205,11 @@ func hasPrefixes(s string, prefixes []string) bool {
 }
 
 func isIgnored(pkg *build.Package) bool {
-	return ignored[pkg.ImportPath] || (pkg.Goroot && *ignoreStdlib) || hasPrefixes(pkg.ImportPath, ignoredPrefixes)
+	return ignored[pkg.ImportPath] ||
+		ignored[canonImportPath(pkg)] ||
+		(pkg.Goroot && *ignoreStdlib) ||
+		hasPrefixes(pkg.ImportPath, ignoredPrefixes) ||
+		hasPrefixes(canonImportPath(pkg), ignoredPrefixes)
 }
 
 func debug(args ...interface{}) {
