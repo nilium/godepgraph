@@ -40,10 +40,19 @@ func main() {
 	flag.Parse()
 
 	args := flag.Args()
-
-	if len(args) != 1 {
-		log.Fatal("need one package name to process")
+	if len(args) < 1 {
+		log.Fatal("need at least one package name to process")
 	}
+
+	roots := make(map[string]struct{})
+	rootord := make([]string, 0, len(roots))
+	for _, pkg := range args {
+		if _, ok := roots[pkg]; ok {
+			continue
+		}
+		roots[pkg], rootord = struct{}{}, append(rootord, pkg)
+	}
+	sort.Strings(rootord)
 
 	if *ignorePrefixes != "" {
 		ignoredPrefixes = strings.Split(*ignorePrefixes, ",")
@@ -62,8 +71,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to get cwd: %s", err)
 	}
-	if err := processPackage(cwd, args[0]); err != nil {
-		log.Fatal(err)
+
+	for _, pkg := range rootord {
+		if err := processPackage(cwd, pkg); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	fmt.Println("digraph godep {")
